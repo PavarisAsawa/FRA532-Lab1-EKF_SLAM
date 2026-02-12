@@ -80,8 +80,8 @@ class ICPNode(Node):
         self.last_keyframe_pose = np.array([0.0, 0.0, 0.0])
         
         # Keyframe thresholds
-        self.keyframe_distance_threshold = 0.20  # 15cm
-        self.keyframe_angle_threshold = np.deg2rad(15)  # 15 degrees
+        self.keyframe_distance_threshold = 0.20  # 20cm
+        self.keyframe_angle_threshold = np.deg2rad(10)  # 10 degrees
         self.min_keyframe_interval = 0.2  # 200ms minimum
         self.last_keyframe_time = 0.0
         
@@ -92,7 +92,7 @@ class ICPNode(Node):
         # --- Map management ---
         self.max_map_size = 15000
         self.icp_map_size = 3000  # Use up to 3000 points for ICP
-        self.local_map_radius = 8.0
+        self.local_map_radius = 6.0
         
         # --- Path ---
         self.icp_path_msg = Path()
@@ -116,7 +116,7 @@ class ICPNode(Node):
         
         # Point cloud quality tracking
         self.min_scan_points = 30  # Minimum points in scan after filtering
-        self.min_local_map_points = 200  # Minimum points in local map for ICP
+        self.min_local_map_points = 100  # Minimum points in local map for ICP
         self.poor_scan_count = 0
         
         self.enable_icp = True
@@ -159,7 +159,7 @@ class ICPNode(Node):
         mask = distances < radius
         local_points = self.local_map_point_cloud[mask]
         
-        # BETTER SUBSAMPLING - use random instead of slicing
+        # use random
         if local_points.shape[0] > self.icp_map_size:
             indices = np.random.choice(local_points.shape[0], self.icp_map_size, replace=False)
             local_points = local_points[indices]
@@ -236,15 +236,15 @@ class ICPNode(Node):
             return
         
         # Preprocessing
-        # point_cloud = remove_outliers(point_cloud, 0.50, 2)
-        # point_cloud = voxel_grid_filter(point_cloud, leaf_size=0.02)
+        # point_cloud = remove_outliers(point_cloud, 0.50, 5)
+        # point_cloud = voxel_grid_filter(point_cloud, leaf_size=0.08)
         final_points = point_cloud.shape[0]
         
         # Check if we lost too many points in filtering
         if final_points < self.min_scan_points:
             self.poor_scan_count += 1
             self.get_logger().warn(
-                f'Scan #{self.total_scans}: Filtered {initial_points}→{final_points} points '
+                f'Scan #{self.total_scans}: Filtered {initial_points} -> {final_points} points '
                 f'(< {self.min_scan_points} minimum) - USING ODOMETRY ONLY'
             )
             # Skip ICP, just use odometry

@@ -30,6 +30,7 @@ setup(
     entry_points={
         'console_scripts': [
             'odometry_node = lab1_ekf_slam.localize_node:main',
+            'icp_node = lab1_ekf_slam.icp_node_5:main'
         ],
     },
 )

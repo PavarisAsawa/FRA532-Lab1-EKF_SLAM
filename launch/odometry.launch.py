@@ -9,4 +9,12 @@ def generate_launch_description():
         output='screen',
     )
 
+    odom_node = Node(
+        package='lab1_ekf_slam',
+        executable='icp_node',   # console_scripts name in setup.py
+        name='icp_node',
+        output='screen',
+    )
+
+
     return LaunchDescription([odom_node])

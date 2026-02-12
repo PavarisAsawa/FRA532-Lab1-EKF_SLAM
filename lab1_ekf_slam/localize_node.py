@@ -33,12 +33,21 @@ class OdometryNode(Node):
         # --- Publishers ---
         # self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
         self.path_pub = self.create_publisher(Path, '/ekf_path', 10) # Path Publisher
+        self.wheel_path_pub = self.create_publisher(Path, '/wheel_path', 10)
+        self.wheel_imu_path_pub = self.create_publisher(Path, '/wheel_imu_path', 10)
+
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
+        self.wheel_odom_pub  = self.create_publisher(Odometry, '/wheel_odom', 10)
+        self.wheel_imu_odom_pub  = self.create_publisher(Odometry, '/wheel_imu_odom', 10)
 
         # --- Path Data Container ---
         self.path = Path()
         self.path.header.frame_id = 'odom' # Must match RViz Fixed Frame
+        self.wheel_path = Path()
+        self.wheel_path.header.frame_id = 'odom'   # keep same fixed frame as RViz
+        self.wheel_imu_path = Path()
+        self.wheel_imu_path.header.frame_id = 'odom'   # keep same fixed frame as RViz
 
         # --- Wheel odom
         self.wheel_odom = DeadReckoning()
@@ -119,8 +128,21 @@ class OdometryNode(Node):
 
         # ---------------------------- Set pub ------------------------------------- #        
         now = self.get_clock().now().to_msg() # Set time 
-        self.publish_path(self.x, self.y, self.theta, now) # Publish path
-        self.publish_odom(self.x, self.y, self.theta, now)
+        # EKF
+        self.publish_path(self.x, self.y, self.theta, now, self.path, self.path_pub, frame_id="odom")
+        self.publish_odom(self.x, self.y, self.theta, now, self.odom_pub, parent_frame="odom", child_frame="base_link", publish_tf=False)
+
+        # Wheel odom (use different child frame to avoid TF conflicts)
+        self.publish_path(self.wheel_odom.x, self.wheel_odom.y, self.wheel_odom.theta, now,
+                                self.wheel_path, self.wheel_path_pub, frame_id="odom")
+        self.publish_odom(self.wheel_odom.x, self.wheel_odom.y, self.wheel_odom.theta, now,
+                                self.wheel_odom_pub, parent_frame="odom", child_frame="base_link", publish_tf=False)
+        
+        # Wheel_imu odom
+        self.publish_path(self.wheel_imu.x, self.wheel_imu.y, self.wheel_imu.theta, now,
+                                self.wheel_imu_path, self.wheel_imu_path_pub, frame_id="odom")
+        self.publish_odom(self.wheel_imu.x, self.wheel_imu.y, self.wheel_imu.theta, now,
+                                self.wheel_imu_odom_pub, parent_frame="odom", child_frame="base_link", publish_tf=False)
         # ---------------------------- Plot ---------------------------------------- #        
         # print(f"X : {self.x} || Y : {self.y}")
         # EKF
@@ -143,65 +165,86 @@ class OdometryNode(Node):
             # plt.autoscale()
             plt.pause(0.005)
     
-    def publish_path(self, x, y, theta, timestamp):
-        """Publish path"""
+    def publish_path(
+        self,
+        x: float,
+        y: float,
+        theta: float,
+        timestamp,
+        path_msg: Path,
+        path_pub,
+        frame_id: str = "odom",
+        max_len: int = 10_000_000,
+    ):
+        """Publish a Path to any topic via the given publisher + Path container."""
         pose = PoseStamped()
         pose.header.stamp = timestamp
-        pose.header.frame_id = 'odom'
-        pose.pose.position.x , pose.pose.position.y , pose.pose.position.z = float(x), float(y), 0.0
+        pose.header.frame_id = frame_id
 
-        q = quaternion_from_euler(0, 0, float(theta))
-        pose.pose.orientation.x,pose.pose.orientation.y,pose.pose.orientation.z,pose.pose.orientation.w = q[0],q[1],q[2],q[3]
+        pose.pose.position.x = float(x)
+        pose.pose.position.y = float(y)
+        pose.pose.position.z = 0.0
 
-        self.path.header.stamp = timestamp
-        self.path.poses.append(pose)
+        q = quaternion_from_euler(0.0, 0.0, float(theta))
+        pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w = q
 
-        if len(self.path.poses) > 10000000: # if buffer is full
-            self.path.poses.pop(0)
+        path_msg.header.stamp = timestamp
+        path_msg.header.frame_id = frame_id
+        path_msg.poses.append(pose)
 
-        self.path_pub.publish(self.path)
+        if len(path_msg.poses) > max_len:
+            path_msg.poses.pop(0)
 
-    def publish_odom(self, x, y, theta, timestamp):
-        # 1. Create and Publish the Transform (TF)
-        t = TransformStamped()
-        t.header.stamp = timestamp
-        t.header.frame_id = 'odom'
-        t.child_frame_id = 'base_link'
+        path_pub.publish(path_msg)
 
-        t.transform.translation.x = float(x)
-        t.transform.translation.y = float(y)
-        t.transform.translation.z = 0.0
+    def publish_odom(
+        self,
+        x: float,
+        y: float,
+        theta: float,
+        timestamp,
+        odom_pub,
+        parent_frame: str = "odom",
+        child_frame: str = "base_link",
+        publish_tf: bool = True,
+    ):
+        """Publish Odometry to any topic (and optionally TF) with configurable frame names."""
+        q = quaternion_from_euler(0.0, 0.0, float(theta))
 
-        q = quaternion_from_euler(0, 0, float(theta))
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
+        # 1) TF (optional)
+        if publish_tf:
+            t = TransformStamped()
+            t.header.stamp = timestamp
+            t.header.frame_id = parent_frame
+            t.child_frame_id = child_frame
 
-        self.tf_broadcaster.sendTransform(t)
+            t.transform.translation.x = float(x)
+            t.transform.translation.y = float(y)
+            t.transform.translation.z = 0.0
 
-        # 2. Create and Publish the Odometry Message
+            t.transform.rotation.x = q[0]
+            t.transform.rotation.y = q[1]
+            t.transform.rotation.z = q[2]
+            t.transform.rotation.w = q[3]
+
+            self.tf_broadcaster.sendTransform(t)
+
+        # 2) Odometry msg
         odom = Odometry()
         odom.header.stamp = timestamp
-        odom.header.frame_id = 'odom'
-        odom.child_frame_id = 'base_link'
+        odom.header.frame_id = parent_frame
+        odom.child_frame_id = child_frame
 
-        # Set the pose
         odom.pose.pose.position.x = float(x)
         odom.pose.pose.position.y = float(y)
         odom.pose.pose.position.z = 0.0
+
         odom.pose.pose.orientation.x = q[0]
         odom.pose.pose.orientation.y = q[1]
         odom.pose.pose.orientation.z = q[2]
         odom.pose.pose.orientation.w = q[3]
 
-        # Set the velocities
-        # v = (self.wheel_odom.r / 2.0) * (self.joint_vel[1] + self.joint_vel[0])
-        # omega = (self.wheel_odom.r / self.wheel_odom.L) * (self.joint_vel[1] - self.joint_vel[0])
-        # odom.twist.twist.linear.x = float(v)
-        # odom.twist.twist.angular.z = float(omega)
-
-        self.odom_pub.publish(odom)
+        odom_pub.publish(odom)
         
 def main():
     rclpy.init(args=None)
