@@ -54,9 +54,9 @@ class ICPNode(Node):
         
         # --- Publishers ---
         self.icp_path_pub = self.create_publisher(Path, '/robot_path', 10)
-        self.ekf_path_pub = self.create_publisher(Path, '/ekf_path', 10)  # Add EKF path for comparison
+        self.ekf_path_pub = self.create_publisher(Path, '/ekf_path', 10)
         self.point_cloud_pub = self.create_publisher(PointCloud2, '/point_cloud', 10)
-        self.current_scan_pub = self.create_publisher(PointCloud2, '/current_scan', 10)  # Visualize current scan
+        self.current_scan_pub = self.create_publisher(PointCloud2, '/current_scan', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # --- Timer ---
@@ -79,20 +79,20 @@ class ICPNode(Node):
         self.keyframes = []
         self.last_keyframe_pose = np.array([0.0, 0.0, 0.0])
         
-        # RELAXED keyframe thresholds for debugging
-        self.keyframe_distance_threshold = 0.30  # Increased from 0.15
-        self.keyframe_angle_threshold = np.deg2rad(25)  # Increased from 15
-        self.min_keyframe_interval = 0.5
+        # Keyframe thresholds
+        self.keyframe_distance_threshold = 0.20  # 15cm
+        self.keyframe_angle_threshold = np.deg2rad(15)  # 15 degrees
+        self.min_keyframe_interval = 0.2  # 200ms minimum
         self.last_keyframe_time = 0.0
         
         # --- Store point cloud ---
         self.current_scan = None
         self.local_map_point_cloud = np.array([]).reshape(0, 2)
         
-        # --- Map management - MORE CONSERVATIVE ---
-        self.max_map_size = 15000  # Reduced from 10000
-        self.icp_map_size = 2000  # Reduced from 3000
-        self.local_map_radius = 8.0  # Reduced from 10.0 - use closer points only
+        # --- Map management ---
+        self.max_map_size = 15000
+        self.icp_map_size = 3000  # Use up to 3000 points for ICP
+        self.local_map_radius = 8.0
         
         # --- Path ---
         self.icp_path_msg = Path()
@@ -108,13 +108,22 @@ class ICPNode(Node):
         self.large_correction_count = 0
         self.consecutive_failures = 0
         
-        # --- DIAGNOSTIC MODE ---
-        self.enable_icp = True  # Can disable to see pure EKF drift
-        self.max_consecutive_failures = 20  # Reset if too many failures
+        # Jump detection
+        self.last_valid_pose = np.array([0.0, 0.0, 0.0])
+        self.jump_threshold_dist = 0.5  # 50cm sudden jump is suspicious
+        self.jump_threshold_angle = np.deg2rad(30)  # 30° sudden jump is suspicious
+        self.jump_count = 0
+        
+        # Point cloud quality tracking
+        self.min_scan_points = 30  # Minimum points in scan after filtering
+        self.min_local_map_points = 200  # Minimum points in local map for ICP
+        self.poor_scan_count = 0
+        
+        self.enable_icp = True
+        self.max_consecutive_failures = 20
         
         self.get_logger().info('='*60)
-        self.get_logger().info('ICP SLAM NODE - DIAGNOSTIC MODE')
-        self.get_logger().info('Publishing /ekf_path for comparison with /robot_path')
+        self.get_logger().info('ICP SLAM NODE - JUMP PREVENTION')
         self.get_logger().info('='*60)
 
     def is_keyframe(self, current_pose, current_time):
@@ -150,17 +159,10 @@ class ICPNode(Node):
         mask = distances < radius
         local_points = self.local_map_point_cloud[mask]
         
-        # Log local map stats
-        if self.total_scans % 50 == 0:
-            self.get_logger().info(
-                f'Local map: {local_points.shape[0]}/{self.local_map_point_cloud.shape[0]} points '
-                f'within {radius:.1f}m of ({current_pose[0]:.2f}, {current_pose[1]:.2f})'
-            )
-        
+        # BETTER SUBSAMPLING - use random instead of slicing
         if local_points.shape[0] > self.icp_map_size:
-            local_points = local_points[1000:-1,:]
-            # indices = np.random.choice(local_points.shape[0], self.icp_map_size, replace=False)
-            # local_points = local_points[indices]
+            indices = np.random.choice(local_points.shape[0], self.icp_map_size, replace=False)
+            local_points = local_points[indices]
         
         return local_points
 
@@ -177,7 +179,7 @@ class ICPNode(Node):
         else:
             self.local_map_point_cloud = np.vstack((self.local_map_point_cloud, kf.scan_in_map))
         
-        # More aggressive filtering
+        # Filtering
         if self.local_map_point_cloud.shape[0] > self.max_map_size:
             self.get_logger().warn(f'Map too large ({self.local_map_point_cloud.shape[0]} points), filtering...')
             self.local_map_point_cloud = remove_outliers(self.local_map_point_cloud, 0.15, 5)
@@ -187,157 +189,214 @@ class ICPNode(Node):
         self.last_keyframe_pose = pose.copy()
         self.last_keyframe_time = timestamp
         
-        self.get_logger().info(
-            f'Keyframe #{self.keyframe_count} at ({pose[0]:.2f}, {pose[1]:.2f}, {np.rad2deg(pose[2]):.1f}°) '
-            f'- Map: {self.local_map_point_cloud.shape[0]} points'
-        )
+        if self.keyframe_count % 5 == 0:
+            self.get_logger().info(
+                f'KF #{self.keyframe_count}: ({pose[0]:.2f}, {pose[1]:.2f}, {np.rad2deg(pose[2]):.1f}°), '
+                f'Map: {self.local_map_point_cloud.shape[0]}pts'
+            )
+
+    def detect_jump(self, new_pose, delta_ekf):
+        """Detect if pose jumped unreasonably"""
+        # Calculate actual change
+        actual_delta = new_pose - self.last_valid_pose
+        actual_dist = np.sqrt(actual_delta[0]**2 + actual_delta[1]**2)
+        actual_angle = abs(wrap(actual_delta[2]))
+        
+        # Compare to expected EKF delta
+        expected_dist = np.sqrt(delta_ekf[0]**2 + delta_ekf[1]**2)
+        
+        # Check if jump is way larger than expected
+        dist_ratio = actual_dist / max(expected_dist, 0.01)  # Avoid division by zero
+        
+        is_jump = (actual_dist > self.jump_threshold_dist or 
+                  actual_angle > self.jump_threshold_angle or
+                  dist_ratio > 10.0)  # Moved 10x more than expected
+        
+        if is_jump:
+            self.jump_count += 1
+            self.get_logger().error(
+                f'JUMP DETECTED #{self.jump_count}! '
+                f'Moved {actual_dist:.3f}m/{np.rad2deg(actual_angle):.1f}° '
+                f'(expected ~{expected_dist:.3f}m), ratio={dist_ratio:.1f}x'
+            )
+        
+        return is_jump
 
     def laser_scan_callback(self, msg):
         self.total_scans += 1
+        
+        # ========================================
+        # STEP 1: Get and validate scan
+        # ========================================
         point_cloud = scan_to_pointcloud(msg)
-        if point_cloud.shape[0] < 25: 
-            print("RETUNR NO ENOUGH POINT CLOUD")
+        initial_points = point_cloud.shape[0]
+        
+        if initial_points < 25:
+            self.get_logger().warn(f'Scan #{self.total_scans}: Only {initial_points} raw points - SKIPPING')
             return
         
         # Preprocessing
-        point_cloud = remove_outliers(point_cloud, 0.20, 4)
-        point_cloud = voxel_grid_filter(point_cloud, leaf_size=0.02)
-        self.current_scan = point_cloud
+        # point_cloud = remove_outliers(point_cloud, 0.50, 2)
+        # point_cloud = voxel_grid_filter(point_cloud, leaf_size=0.02)
+        final_points = point_cloud.shape[0]
         
+        # Check if we lost too many points in filtering
+        if final_points < self.min_scan_points:
+            self.poor_scan_count += 1
+            self.get_logger().warn(
+                f'Scan #{self.total_scans}: Filtered {initial_points}→{final_points} points '
+                f'(< {self.min_scan_points} minimum) - USING ODOMETRY ONLY'
+            )
+            # Skip ICP, just use odometry
+            if self.prev_ekf_pose is None:
+                self.prev_ekf_pose = self.ekf_pose.copy()
+            
+            delta_ekf = self.ekf_pose - self.prev_ekf_pose
+            delta_ekf[2] = wrap(delta_ekf[2])
+            self.prev_ekf_pose = self.ekf_pose.copy()
+            
+            self.icp_pose += delta_ekf
+            self.icp_pose[2] = wrap(self.icp_pose[2])
+            
+            # Still publish
+            now = self.get_clock().now().to_msg()
+            self.broadcast_tf(self.icp_pose[0], self.icp_pose[1], self.icp_pose[2], "odom", "base_link", now)
+            self.publish_path(self.icp_path_pub, self.icp_path_msg, 
+                             self.icp_pose[0], self.icp_pose[1], self.icp_pose[2], now)
+            return
+        
+        self.current_scan = point_cloud
         current_time = self.get_clock().now().seconds_nanoseconds()[0] + \
                       self.get_clock().now().seconds_nanoseconds()[1] * 1e-9
         
-
-        # -------------------------------- 
-        # Get EKF odometry estimate
-        # --------------------------------   
+        # ========================================
+        # STEP 2: Get EKF prediction
+        # ========================================
         if self.prev_ekf_pose is None:
             self.prev_ekf_pose = self.ekf_pose.copy()
         
         delta_ekf = self.ekf_pose - self.prev_ekf_pose
         delta_ekf[2] = wrap(delta_ekf[2])
-        
         self.prev_ekf_pose = self.ekf_pose.copy()
 
-        # Check for unreasonable EKF deltas
+        # Validate EKF delta
         delta_dist = np.sqrt(delta_ekf[0]**2 + delta_ekf[1]**2)
-
-        if delta_dist > 0.5:  # 50cm in one scan is way too much
-            self.get_logger().error(f'HUGE EKF DELTA: {delta_dist:.3f}m - Check odometry!')
+        if delta_dist > 0.5:
+            self.get_logger().error(f'HUGE EKF DELTA: {delta_dist:.3f}m - SKIPPING this scan!')
             return
         
         predicted_icp_pose = self.icp_pose + delta_ekf
         predicted_icp_pose[2] = wrap(predicted_icp_pose[2])
 
-        if self.current_scan is None or self.current_scan.shape[0] < 80:
-            self.icp_pose = predicted_icp_pose
-            return
-        # -------------------------------- 
-        # ICP Scan Matching
-        # --------------------------------
-        
+        # ========================================
+        # STEP 3: Run ICP if map exists
+        # ========================================
         icp_correction_applied = False
+        
         if self.enable_icp and len(self.keyframes) > 0:
             local_map = self.get_local_map_for_icp(predicted_icp_pose)
             
-            if local_map.shape[0] > 100:  # Increased minimum map for 100 point
-   
-                # x, y, theta, count, error, success = icp_matching(
-                #     previous_points=local_map,
-                #     current_points=current_scan_in_map,
-                #     init_x=None,
-                #     init_y=None,
-                #     init_theta=None,
-                #     MAX_ITERATION=30,
-                #     ERROR_BOUND=0.001
-                # )
-                
+            # Log map statistics
+            if self.total_scans % 50 == 0:
+                self.get_logger().info(
+                    f'Scan #{self.total_scans}: {final_points} scan pts, '
+                    f'{local_map.shape[0]} local map pts, '
+                    f'{self.local_map_point_cloud.shape[0]} total map pts'
+                )
+            
+            if local_map.shape[0] >= self.min_local_map_points:
+                # Run ICP
                 x, y, theta, count, error, success = icp_matching(
-                    previous_points=local_map,          # (N,2) in odom
-                    current_points=self.current_scan,   # (M,2) in base_link
+                    previous_points=local_map,
+                    current_points=self.current_scan,
                     init_x=predicted_icp_pose[0],
                     init_y=predicted_icp_pose[1],
                     init_theta=predicted_icp_pose[2],
-                    MAX_ITERATION=30,
-                    ERROR_BOUND=0.001,
-                    max_corr_dist=0.2   # strongly recommended
+                    MAX_ITERATION=40,  # 
+                    ERROR_BOUND=0.0005,  # error bound
+                    max_corr_dist=0.1  # Maximum correspondence distance
                 )
                 
-                # DIAGNOSTIC: Calculate correction magnitude
+                # Calculate correction
                 correction_dist = np.sqrt((x - predicted_icp_pose[0])**2 + 
                                         (y - predicted_icp_pose[1])**2)
                 correction_angle = abs(wrap(theta - predicted_icp_pose[2]))
                 
-                # Log ICP details periodically
+                # Log periodically
                 if self.total_scans % 10 == 0:
                     self.get_logger().info(
-                        f'ICP: err={error:.4f}, iter={count}, '
-                        f'correction={correction_dist:.3f}m/{np.rad2deg(correction_angle):.1f}°, '
-                        f'predicted=({predicted_icp_pose[0]:.2f},{predicted_icp_pose[1]:.2f}), '
-                        f'result=({x:.2f},{y:.2f})'
+                        f'ICP: err={error:.4f}, iter={count}/{40}, '
+                        f'corr={correction_dist:.3f}m/{np.rad2deg(correction_angle):.1f}°, '
+                        f'success={success}'
                     )
                 
-                # MUCH MORE RELAXED validation for now
-                if success and error < 0.20:  # Increased from 0.15
-                    # Very permissive thresholds to see what ICP wants to do
-                    if correction_dist < 0.1 and correction_angle < np.deg2rad(15):  # threshold
-                        self.icp_pose = np.array([x, y, theta])
-                        self.icp_success_count += 1
-                        self.consecutive_failures = 0
-                        icp_correction_applied = True
-                        
-                        # if correction_dist > 0.1:  # Still log large ones
-                        #     self.get_logger().warn(
-                        #         f'LARGE correction accepted: {correction_dist:.3f}m, {np.rad2deg(correction_angle):.1f}°'
-                        #     )
+                # Validate ICP result
+                if success and error < 0.15:  # Reasonable error
+                    # Accept correction if within bounds
+                    if correction_dist < 0.15 and correction_angle < np.deg2rad(20):
+                        # Check for jumps before accepting
+                        candidate_pose = np.array([x, y, theta])
+                        if not self.detect_jump(candidate_pose, delta_ekf):
+                            self.icp_pose = candidate_pose
+                            self.last_valid_pose = self.icp_pose.copy()
+                            self.icp_success_count += 1
+                            self.consecutive_failures = 0
+                            icp_correction_applied = True
+                        else:
+                            # Jump detected - reject ICP, use prediction
+                            self.get_logger().error('ICP result would cause JUMP - REJECTED')
+                            self.icp_pose = predicted_icp_pose
+                            self.icp_fail_count += 1
+                            self.consecutive_failures += 1
                     else:
+                        # Correction too large
                         self.icp_pose = predicted_icp_pose
                         self.icp_fail_count += 1
-                        self.large_correction_count += 1
                         self.consecutive_failures += 1
-                        self.get_logger().error(
-                            f'ICP correction REJECTED: {correction_dist:.3f}m, {np.rad2deg(correction_angle):.1f}° '
-                            f'(consecutive failures: {self.consecutive_failures})'
-                        )
+                        if self.total_scans % 10 == 0:
+                            self.get_logger().warn(
+                                f'ICP correction too large: {correction_dist:.3f}m/{np.rad2deg(correction_angle):.1f}°'
+                            )
                 else:
-                    self.get_logger().error(f'ICP NOT SUCCESS')
+                    # ICP failed or high error
                     self.icp_pose = predicted_icp_pose
                     self.icp_fail_count += 1
                     self.consecutive_failures += 1
+                    if self.total_scans % 10 == 0:
+                        self.get_logger().warn(f'ICP failed: success={success}, error={error:.4f}')
             else:
+                # Not enough local map points
                 self.icp_pose = predicted_icp_pose
-                if self.total_scans % 20 == 0:
-                    self.get_logger().warn(f'Insufficient local map: {local_map.shape[0]} points')
+                self.get_logger().warn(
+                    f'Insufficient local map: {local_map.shape[0]} pts '
+                    f'(need ≥{self.min_local_map_points})'
+                )
         else:
+            # No keyframes yet - use prediction
             self.icp_pose = predicted_icp_pose
         
-        # Reset if too many consecutive failures
-        if self.consecutive_failures > self.max_consecutive_failures:
-            self.get_logger().error(
-                f'TOO MANY FAILURES ({self.consecutive_failures}) - '
-                f'Map may be corrupted. Consider resetting.'
-            )
+        # Update last valid pose if no ICP correction (odometry only)
+        if not icp_correction_applied:
+            self.last_valid_pose = self.icp_pose.copy()
         
-        
-        # -------------------------------- 
-        # Keyframe Decision
-        # --------------------------------
+        # ========================================
+        # STEP 4: Keyframe decision
+        # ========================================
         if self.is_keyframe(self.icp_pose, current_time):
             self.add_keyframe(self.icp_pose, self.current_scan, current_time)
         
-        # -------------------------------- 
-        # Publish
-        # --------------------------------
+        # ========================================
+        # STEP 5: Publish
+        # ========================================
         now = self.get_clock().now().to_msg()
         
-        # Publish both ICP and EKF paths for comparison
         self.broadcast_tf(self.icp_pose[0], self.icp_pose[1], self.icp_pose[2], "odom", "base_link", now)
         self.publish_path(self.icp_path_pub, self.icp_path_msg, 
                          self.icp_pose[0], self.icp_pose[1], self.icp_pose[2], now)
         self.publish_path(self.ekf_path_pub, self.ekf_path_msg,
                          self.ekf_pose[0], self.ekf_pose[1], self.ekf_pose[2], now)
         
-        # Publish current scan in map frame for visualization
+        # Publish current scan
         if self.current_scan is not None:
             scan_in_map = pointcloud_to_odom(
                 self.current_scan,
@@ -347,7 +406,7 @@ class ICPNode(Node):
             )
             self.publish_processed_pc(scan_in_map, now, "odom", self.current_scan_pub)
         
-        # Publish map
+        # Publish map periodically
         if self.total_scans % 10 == 0:
             self.publish_processed_pc(self.local_map_point_cloud, now, "odom", self.point_cloud_pub)
 
@@ -359,7 +418,6 @@ class ICPNode(Node):
                                            msg.orientation.z, msg.orientation.w])
 
     def timer_callback(self):
-        now = self.get_clock().now().to_msg()
         self.ekf_pose = self.ekf.predict(self.joint_pos, [0, 0, self.euler[2]])
         self.ekf_pose[2] = wrap(self.ekf_pose[2])
 
@@ -426,18 +484,17 @@ def main():
         pass
     finally:
         node.get_logger().info('='*60)
-        node.get_logger().info(f'DIAGNOSTIC STATISTICS:')
+        node.get_logger().info('FINAL STATISTICS:')
         node.get_logger().info(f'  Total scans: {node.total_scans}')
+        node.get_logger().info(f'  Poor quality scans: {node.poor_scan_count} '
+                             f'({100*node.poor_scan_count/max(node.total_scans,1):.1f}%)')
         node.get_logger().info(f'  Keyframes: {node.keyframe_count}')
         node.get_logger().info(f'  Map points: {node.local_map_point_cloud.shape[0]}')
-        node.get_logger().info(f'  ICP success: {node.icp_success_count}/{node.total_scans} '
+        node.get_logger().info(f'  ICP success rate: {node.icp_success_count}/{node.total_scans} '
                              f'({100*node.icp_success_count/max(node.total_scans,1):.1f}%)')
-        node.get_logger().info(f'  ICP failures: {node.icp_fail_count}')
-        node.get_logger().info(f'  Large corrections rejected: {node.large_correction_count}')
-        node.get_logger().info(f'  Final ICP pose: ({node.icp_pose[0]:.2f}, {node.icp_pose[1]:.2f}, '
+        node.get_logger().info(f'  Jumps detected: {node.jump_count}')
+        node.get_logger().info(f'  Final pose: ({node.icp_pose[0]:.2f}, {node.icp_pose[1]:.2f}, '
                              f'{np.rad2deg(node.icp_pose[2]):.1f}°)')
-        node.get_logger().info(f'  Final EKF pose: ({node.ekf_pose[0]:.2f}, {node.ekf_pose[1]:.2f}, '
-                             f'{np.rad2deg(node.ekf_pose[2]):.1f}°)')
         node.get_logger().info('='*60)
         
         node.destroy_node()
