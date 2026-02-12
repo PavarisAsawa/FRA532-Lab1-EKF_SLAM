@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+import os
+from glob import glob
 
 package_name = 'lab1_ekf_slam'
 
@@ -10,6 +12,9 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'),
+         glob('launch/*.launch.py')),
+        
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -24,7 +29,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'my_node = lab1_ekf_slam.my_node:main'
+            'odometry_node = lab1_ekf_slam.localize_node:main',
         ],
     },
 )

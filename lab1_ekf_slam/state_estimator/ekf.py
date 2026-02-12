@@ -51,11 +51,13 @@ class EKF():
             self.last_joint_pos = observation
             return self.x, self.y, self.theta
         
+        d_phi_left = observation[0] - self.last_joint_pos[0]
+        d_phi_right = observation[1] - self.last_joint_pos[1]
         # atan2 for handles encoder "rollover" & calculate difference angle
-        d_phi_left = math.atan2(math.sin(observation[0] - self.last_joint_pos[0]), 
-                                math.cos(observation[0] - self.last_joint_pos[0]))
-        d_phi_right = math.atan2(math.sin(observation[1] - self.last_joint_pos[1]), 
-                                 math.cos(observation[1] - self.last_joint_pos[1]))
+        # d_phi_left = math.atan2(math.sin(observation[0] - self.last_joint_pos[0]), 
+        #                        math.cos(observation[0] - self.last_joint_pos[0]))
+        # d_phi_right = math.atan2(math.sin(observation[1] - self.last_joint_pos[1]), 
+        #                        math.cos(observation[1] - self.last_joint_pos[1]))
         self.last_joint_pos = observation # update position for the next iteration
         return [d_phi_left,d_phi_right]
 
@@ -110,7 +112,7 @@ class EKF():
         """
         State Estimator with EKF!
         u : joint position(rad) : [left , right]
-        z : sensor data(IMU data) : [r,p,y]
+        z : sensor data(IMU data) : [x,y,yaw]
         """
         # ----------- Predict
         u = self.cal_u(u)
@@ -132,4 +134,8 @@ class EKF():
 
         self.x,self.y,self.theta = xEst
         return xEst
+    
+    
+    def get_pose(self):
+        return self.x,self.y,self.theta
 
