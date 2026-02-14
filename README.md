@@ -38,8 +38,7 @@ $$
 - $\omega_l$: left wheel joint angular velocity
 - $L$: distance between the wheels
 
-$$
-\mathbf{x}[k+1] = 
+$$\mathbf{x}[k+1] = 
 \begin{bmatrix}
 x[k] \\
 y[k] \\
@@ -50,8 +49,7 @@ y[k] \\
 v_b \cos(\theta[k] \Delta t) \\
 v_b \sin(\theta[k] \Delta t) \\
 \omega_b[k] \Delta t
-\end{bmatrix}
-$$
+\end{bmatrix}$$
 
 > The code in this section has been replaced by another model! (This was my first motion model, but it wasn't working.)
 
@@ -80,9 +78,8 @@ $$
 Where:
 - $\phi_{\text{left}}[k]$ and $\phi_{\text{right}}[k]$ are the joint positions of the left and right wheels at time step $k$.
 - $\Delta \phi_{\text{left}}$ and $\Delta \phi_{\text{right}}$ represent the changes in the left and right wheel positions (i.e., the angular differences between successive positions).
-- 
-$$
-\mathbf{x}[k+1] =
+  
+$$\mathbf{x}[k+1] =
 \begin{bmatrix}
 x[k+1] \\
 y[k+1] \\
@@ -98,8 +95,7 @@ y[k] \\
 \frac{r}{2}\left(\Delta\phi_{\mathrm{L}}+\Delta\phi_{\mathrm{R}}\right)\cos\!\left(\theta[k]+\frac{\Delta\phi_{\mathrm{R}}-\Delta\phi_{\mathrm{L}}}{2}\right) \\
 \frac{r}{2}\left(\Delta\phi_{\mathrm{L}}+\Delta\phi_{\mathrm{R}}\right)\sin\!\left(\theta[k]+\frac{\Delta\phi_{\mathrm{R}}-\Delta\phi_{\mathrm{L}}}{2}\right) \\
 \frac{r}{L}\left(\Delta\phi_{\mathrm{R}}-\Delta\phi_{\mathrm{L}}\right)
-\end{bmatrix}
-$$
+\end{bmatrix}$$
 
 
 >**ref : https://medium.com/@nahmed3536/wheel-odometry-model-for-differential-drive-robotics-91b85a012299**
