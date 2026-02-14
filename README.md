@@ -6,7 +6,7 @@
 - The state is given as:
 
 $$
-\bm{x} = \begin{bmatrix}
+\mathbf{x} = \begin{bmatrix}
 u \\
 v \\
 \theta
@@ -32,14 +32,14 @@ $$
 \omega_b = \frac{r}{L}(\omega_r - \omega_l)
 $$
 
-- $ v_b $: robot base linear velocity
-- $ \omega_b $: robot base angular velocity
-- $ \omega_r $: right wheel joint angular velocity
-- $ \omega_l $: left wheel joint angular velocity
-- $ L $: distance between the wheels
+- $v_b $: robot base linear velocity
+- $\omega_b$: robot base angular velocity
+- $\omega_r$: right wheel joint angular velocity
+- $\omega_l$: left wheel joint angular velocity
+- $L$: distance between the wheels
 
 $$
-\bm{x}[k+1] = 
+\mathbf{x}[k+1] = 
 \begin{bmatrix}
 x[k] \\
 y[k] \\
@@ -118,12 +118,12 @@ The result show better prediction for estimate the odometry, while using only mo
 ### **EKF**
 Extended Kalman Filter is used benefit from motion model and observation to predict the state in control system in this work we use to predict the $x,y,\theta$. This model in non-linear version of traditional Kalman Filter, linearize over the current state with first order Taylor series to handle the non-linear system.
 
-Matrix $\bm{H}$ selected observable state from the state, selected only $\theta$ from IMU data 
+Matrix $\mathbf{H}$ selected observable state from the state, selected only $\theta$ from IMU data 
 #### **Motion Jacobian Matrix**
 EKF handle non-linearity with linearization with first-order Taylor series, represented as Jacobian matrix. We linearize our motion model as:
 
 $$
-\frac{\partial \bm{x}}{\partial u} =
+\frac{\partial \mathbf{x}}{\partial u} =
 \begin{bmatrix}
 \frac{\partial x}{\partial u_0} & \frac{\partial x}{\partial u_1} & \frac{\partial x}{\partial \theta} \\
 \frac{\partial y}{\partial u_0} & \frac{\partial y}{\partial u_1} & \frac{\partial y}{\partial \theta} \\
@@ -145,13 +145,13 @@ $$
 In this homework, we utilize IMU data, and able to access robot's orientation from IMU sensor. We can use this inforamation to correct the data. The matrix for observation model we define as
 
 $$
-\bm{H} = \begin{bmatrix} 0 & 0 & 1\end{bmatrix}
+\mathbf{H} = \begin{bmatrix} 0 & 0 & 1\end{bmatrix}
 $$
 
 Similar to motion jacobian we use taylor series to linearize from observation
 
 $$
-\bm{H} = 
+\mathbf{H} = 
 \begin{bmatrix} 
 0 & 0 & 0 \\
 0 & 0 & 0 \\
