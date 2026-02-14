@@ -140,21 +140,16 @@ $$
 #### **Observation Model & Jacobian**
 In this homework, we utilize IMU data, and able to access robot's orientation from IMU sensor. We can use this inforamation to correct the data. The matrix for observation model we define as
 
-$$
-\mathbf{H} = \begin{bmatrix} 0 & 0 & 1\end{bmatrix}
-$$
+$h = \begin{bmatrix} 0 & 0 & 1\end{bmatrix}$$
 
 Similar to motion jacobian we use taylor series to linearize from observation
 
-$$
-\mathbf{H} = 
+$$mathbf{H} = 
 \begin{bmatrix} 
 0 & 0 & 0 \\
 0 & 0 & 0 \\
 0 & 0 & 1 \\
-
-\end{bmatrix}
-$$
+\end{bmatrix}$$
 
 
 #### **Parameters**
