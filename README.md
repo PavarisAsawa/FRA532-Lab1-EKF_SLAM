@@ -81,8 +81,10 @@ Where:
 - $\phi_{\text{left}}[k]$ and $\phi_{\text{right}}[k]$ are the joint positions of the left and right wheels at time step $k$.
 - $\Delta \phi_{\text{left}}$ and $\Delta \phi_{\text{right}}$ represent the changes in the left and right wheel positions (i.e., the angular differences between successive positions).
 
+
+
 $$
-\mathbf{x}[k+1] = 
+\mathbf{x}[k+1] =
 \begin{bmatrix}
 x[k+1] \\
 y[k+1] \\
@@ -96,9 +98,9 @@ y[k] \\
 \end{bmatrix}
 +
 \begin{bmatrix}
-\frac{r}{2} \left( \Delta \phi_{\text{left}} + \Delta \phi_{\text{right}} \right) \cos\left(\theta[k] + \frac{\Delta \phi_{\text{right}} - \Delta \phi_{\text{left}}}{2}\right) \\
-\frac{r}{2} \left( \Delta \phi_{\text{left}} + \Delta \phi_{\text{right}} \right) \sin\left(\theta[k] + \frac{\Delta \phi_{\text{right}} - \Delta \phi_{\text{left}}}{2}\right) \\
-\frac{r}{L} \left( \Delta \phi_{\text{right}} - \Delta \phi_{\text{left}} \right)
+\frac{r}{2}\left(\Delta\phi_{\mathrm{L}}+\Delta\phi_{\mathrm{R}}\right)\cos\!\left(\theta[k]+\frac{\Delta\phi_{\mathrm{R}}-\Delta\phi_{\mathrm{L}}}{2}\right) \\
+\frac{r}{2}\left(\Delta\phi_{\mathrm{L}}+\Delta\phi_{\mathrm{R}}\right)\sin\!\left(\theta[k]+\frac{\Delta\phi_{\mathrm{R}}-\Delta\phi_{\mathrm{L}}}{2}\right) \\
+\frac{r}{L}\left(\Delta\phi_{\mathrm{R}}-\Delta\phi_{\mathrm{L}}\right)
 \end{bmatrix}
 $$
 
