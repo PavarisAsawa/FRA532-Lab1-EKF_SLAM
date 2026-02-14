@@ -80,14 +80,14 @@ $$
 Where:
 - $\phi_{\text{left}}[k]$ and $\phi_{\text{right}}[k]$ are the joint positions of the left and right wheels at time step $k$.
 - $\Delta \phi_{\text{left}}$ and $\Delta \phi_{\text{right}}$ represent the changes in the left and right wheel positions (i.e., the angular differences between successive positions).
+- 
 $$
 \mathbf{x}[k+1] =
 \begin{bmatrix}
 x[k+1] \\
 y[k+1] \\
 \theta[k+1]
-\end{bmatrix}
-=
+\end{bmatrix} =
 \begin{bmatrix}
 x[k] \\
 y[k] \\
