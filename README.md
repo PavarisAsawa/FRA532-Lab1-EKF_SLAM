@@ -13,9 +13,9 @@ v \\
 \end{bmatrix}
 $$
 
-- $ x $: robot position along the X-axis relative to the world frame.  
-- $ y $: robot position along the Y-axis relative to the world frame.
-- $ \theta $: robot yaw relative to the world frame.
+- $x$: robot position along the X-axis relative to the world frame.  
+- $y$: robot position along the Y-axis relative to the world frame.
+- $\theta$: robot yaw relative to the world frame.
 
 ### **Motion Model**
 - The motion model will be compared in this section before being fused with other observation models.
