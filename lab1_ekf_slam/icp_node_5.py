@@ -18,16 +18,17 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from laser_geometry import LaserProjection
 
-from state_estimator.dead_reckoning import *
-from state_estimator.ekf import *
+from .state_estimator.dead_reckoning import *
+from .state_estimator.ekf import *
 
-from state_estimator.MotionIMU import *
-from state_estimator.icp3 import *
-from state_estimator.scan import *
+from .state_estimator.MotionIMU import *
+from .state_estimator.icp3 import *
+from .state_estimator.scan import *
 
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 
 class KeyFrame:
     """Store keyframe information"""
@@ -36,6 +37,7 @@ class KeyFrame:
         self.scan = scan.copy()  # Point cloud in base_link frame
         self.timestamp = timestamp
         self.scan_in_map = None  # Will be computed when added to map
+        self.robot_position = pose[:2].copy()  # Store robot x, y when scan was taken
 
 class ICPNode(Node):
     def __init__(self):
@@ -55,9 +57,17 @@ class ICPNode(Node):
         # --- Publishers ---
         self.icp_path_pub = self.create_publisher(Path, '/robot_path', 10)
         self.ekf_path_pub = self.create_publisher(Path, '/ekf_path', 10)
+        self.icp_map_pub = self.create_publisher(OccupancyGrid, '/icp_map', 10)  # Occupancy grid publisher
         self.point_cloud_pub = self.create_publisher(PointCloud2, '/point_cloud', 10)
         self.current_scan_pub = self.create_publisher(PointCloud2, '/current_scan', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
+        
+        # --- Occupancy Grid Parameters ---
+        self.grid_resolution = 0.05  # 5cm per cell
+        self.grid_width = 800  # 40m at 0.05m resolution
+        self.grid_height = 800  # 40m at 0.05m resolution
+        self.grid_origin_x = -20.0  # meters
+        self.grid_origin_y = -20.0  # meters
         
         # --- Timer ---
         self.dt = 0.05
@@ -66,6 +76,13 @@ class ICPNode(Node):
         # --- Buffer ---
         self.joint_pos, self.joint_vel = [0, 0], [0, 0]
         self.euler = [0, 0, 0]
+        self.calibrated_yaw = 0.0
+
+        # --- IMU Calibration ---
+        self.imu_yaw_offset = 0.0
+        self.imu_calibrated = False
+        self.calibration_samples = []
+        self.calibration_sample_count = 50  # Collect 50 samples
 
         # --- Estimator & SLAM --- 
         self.ekf = EKF()
@@ -122,9 +139,103 @@ class ICPNode(Node):
         self.enable_icp = True
         self.max_consecutive_failures = 20
         
+        # Initial condition
+        self.joint_init = False
+        self.imu_init = False 
+
         self.get_logger().info('='*60)
         self.get_logger().info('ICP SLAM NODE - JUMP PREVENTION')
         self.get_logger().info('='*60)
+        self.get_logger().info('Starting IMU calibration...')
+        self.get_logger().info('Please keep the robot STATIONARY!')
+        self.get_logger().info('='*60)
+
+    def create_occupancy_grid(self, timestamp):
+        """Convert accumulated keyframes to occupancy grid with proper ray tracing"""
+        if len(self.keyframes) == 0:
+            return None
+        
+        # Create empty grid (unknown = -1)
+        grid = np.full((self.grid_height, self.grid_width), -1, dtype=np.int8)
+        
+        # Process each keyframe
+        for kf in self.keyframes:
+            # Get robot position when this scan was taken
+            robot_world_x = kf.pose[0]
+            robot_world_y = kf.pose[1]
+            
+            robot_grid_x = int((robot_world_x - self.grid_origin_x) / self.grid_resolution)
+            robot_grid_y = int((robot_world_y - self.grid_origin_y) / self.grid_resolution)
+            
+            # Get points in map frame for this keyframe
+            scan_points = kf.scan_in_map
+            
+            # Process each point in this scan
+            for i in range(0, len(scan_points), 2):  # Sample every 2nd point for efficiency
+                point = scan_points[i]
+                
+                # Convert world coordinates to grid coordinates
+                grid_x = int((point[0] - self.grid_origin_x) / self.grid_resolution)
+                grid_y = int((point[1] - self.grid_origin_y) / self.grid_resolution)
+                
+                # Check if within bounds
+                if 0 <= grid_x < self.grid_width and 0 <= grid_y < self.grid_height:
+                    # Mark obstacle
+                    grid[grid_y, grid_x] = 100
+                    
+                    # Ray trace from robot position to obstacle
+                    cells = self.bresenham_line(robot_grid_x, robot_grid_y, grid_x, grid_y)
+                    
+                    # Mark all cells except the last one as free
+                    for cx, cy in cells[:-1]:
+                        if 0 <= cx < self.grid_width and 0 <= cy < self.grid_height:
+                            if grid[cy, cx] == -1:  # Only mark if unknown
+                                grid[cy, cx] = 0  # Free space
+        
+        # Create OccupancyGrid message
+        occ_grid = OccupancyGrid()
+        occ_grid.header.stamp = timestamp
+        occ_grid.header.frame_id = 'odom'
+        
+        occ_grid.info.resolution = self.grid_resolution
+        occ_grid.info.width = self.grid_width
+        occ_grid.info.height = self.grid_height
+        occ_grid.info.origin.position.x = self.grid_origin_x
+        occ_grid.info.origin.position.y = self.grid_origin_y
+        occ_grid.info.origin.position.z = 0.0
+        occ_grid.info.origin.orientation.w = 1.0
+        
+        # Flatten grid (row-major order)
+        occ_grid.data = grid.flatten().tolist()
+        
+        return occ_grid
+
+    def bresenham_line(self, x0, y0, x1, y1):
+        """Bresenham's line algorithm to get all cells between two points"""
+        cells = []
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+        
+        x, y = x0, y0
+        
+        while True:
+            cells.append((x, y))
+            
+            if x == x1 and y == y1:
+                break
+            
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x += sx
+            if e2 < dx:
+                err += dx
+                y += sy
+        
+        return cells
 
     def is_keyframe(self, current_pose, current_time):
         """Determine if current pose should be a keyframe"""
@@ -223,6 +334,10 @@ class ICPNode(Node):
         return is_jump
 
     def laser_scan_callback(self, msg):
+        
+        if not self.joint_init or not self.imu_init or not self.imu_calibrated: 
+            return 
+        
         self.total_scans += 1
         
         # ========================================
@@ -312,9 +427,9 @@ class ICPNode(Node):
                     init_x=predicted_icp_pose[0],
                     init_y=predicted_icp_pose[1],
                     init_theta=predicted_icp_pose[2],
-                    MAX_ITERATION=40,  # 
-                    ERROR_BOUND=0.0005,  # error bound
-                    max_corr_dist=0.1  # Maximum correspondence distance
+                    MAX_ITERATION=40,
+                    ERROR_BOUND=0.0005,
+                    max_corr_dist=0.1
                 )
                 
                 # Calculate correction
@@ -331,7 +446,7 @@ class ICPNode(Node):
                     )
                 
                 # Validate ICP result
-                if success and error < 0.15:  # Reasonable error
+                if success and error < 0.15:
                     # Accept correction if within bounds
                     if correction_dist < 0.15 and correction_angle < np.deg2rad(20):
                         # Check for jumps before accepting
@@ -393,8 +508,6 @@ class ICPNode(Node):
         self.broadcast_tf(self.icp_pose[0], self.icp_pose[1], self.icp_pose[2], "odom", "base_link", now)
         self.publish_path(self.icp_path_pub, self.icp_path_msg, 
                          self.icp_pose[0], self.icp_pose[1], self.icp_pose[2], now)
-        self.publish_path(self.ekf_path_pub, self.ekf_path_msg,
-                         self.ekf_pose[0], self.ekf_pose[1], self.ekf_pose[2], now)
         
         # Publish current scan
         if self.current_scan is not None:
@@ -406,19 +519,63 @@ class ICPNode(Node):
             )
             self.publish_processed_pc(scan_in_map, now, "odom", self.current_scan_pub)
         
-        # Publish map periodically
-        if self.total_scans % 10 == 0:
-            self.publish_processed_pc(self.local_map_point_cloud, now, "odom", self.point_cloud_pub)
+        # Publish occupancy grid and point cloud periodically
+        if self.total_scans % 10 == 0 and len(self.keyframes) > 0:
+            # Publish occupancy grid (now uses all keyframes with proper ray origins)
+            occ_grid = self.create_occupancy_grid(now)
+            if occ_grid is not None:
+                self.icp_map_pub.publish(occ_grid)
+            
+            # Publish point cloud
+            if self.local_map_point_cloud.shape[0] > 0:
+                self.publish_processed_pc(self.local_map_point_cloud, now, "odom", self.point_cloud_pub)
 
     def joint_callback(self, msg):
         self.joint_pos, self.joint_vel = msg.position, msg.velocity
+        self.joint_init = True
 
     def imu_callback(self, msg):
-        self.euler = euler_from_quaternion([msg.orientation.x, msg.orientation.y, 
-                                           msg.orientation.z, msg.orientation.w])
+        euler = euler_from_quaternion([msg.orientation.x, msg.orientation.y, 
+                                       msg.orientation.z, msg.orientation.w])
+        raw_yaw = euler[2]
+        
+        # --- IMU Calibration Phase ---
+        if not self.imu_calibrated:
+            self.calibration_samples.append(raw_yaw)
+            
+            if len(self.calibration_samples) >= self.calibration_sample_count:
+                # Calculate average yaw as offset
+                self.imu_yaw_offset = sum(self.calibration_samples) / len(self.calibration_samples)
+                self.imu_calibrated = True
+                
+                self.get_logger().info('='*60)
+                self.get_logger().info('IMU Calibration COMPLETE!')
+                self.get_logger().info(f'Yaw offset: {math.degrees(self.imu_yaw_offset):.2f}°')
+                self.get_logger().info('Robot ready to move!')
+                self.get_logger().info('='*60)
+                
+                self.imu_init = True
+            else:
+                # Still calibrating
+                progress = len(self.calibration_samples)
+                if progress % 10 == 0:
+                    self.get_logger().info(f'Calibrating IMU... {progress}/{self.calibration_sample_count}')
+            return
+        
+        # --- Apply calibration offset ---
+        self.calibrated_yaw = raw_yaw - self.imu_yaw_offset
+        
+        # Normalize to [-pi, pi]
+        self.calibrated_yaw = math.atan2(math.sin(self.calibrated_yaw), math.cos(self.calibrated_yaw))
+        
+        # Update euler with calibrated yaw
+        self.euler = [euler[0], euler[1], self.calibrated_yaw]
 
     def timer_callback(self):
-        self.ekf_pose = self.ekf.predict(self.joint_pos, [0, 0, self.euler[2]])
+        if not self.imu_calibrated:
+            return
+            
+        self.ekf_pose = self.ekf.predict(self.joint_pos, [0, 0, self.calibrated_yaw])
         self.ekf_pose[2] = wrap(self.ekf_pose[2])
 
     def publish_path(self, path_pub, path_msg, x, y, theta, timestamp):

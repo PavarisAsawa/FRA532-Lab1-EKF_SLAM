@@ -5,7 +5,7 @@ class DeadReckoning():
     def __init__(self):
         self.r = 0.033 # Robot wheel radius 33 mm
         self.dt = 0.05
-        self.L = 0.105 # Distance between wheel 105 mm
+        self.L = 0.160 # 0.105 # Distance between wheel 105 mm
 
         # Odom param
         self.x = 0

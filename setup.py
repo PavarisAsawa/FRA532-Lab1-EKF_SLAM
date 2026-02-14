@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'),
          glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.rviz')),
         
     ],
     install_requires=['setuptools'],
@@ -30,7 +31,8 @@ setup(
     entry_points={
         'console_scripts': [
             'odometry_node = lab1_ekf_slam.localize_node:main',
-            'icp_node = lab1_ekf_slam.icp_node_5:main'
+            'icp_node = lab1_ekf_slam.icp_node_5:main',
+            'slam_node = lab1_ekf_slam.SLAM_node:main'
         ],
     },
 )

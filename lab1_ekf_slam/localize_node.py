@@ -10,29 +10,24 @@ from nav_msgs.msg import Odometry ,Path
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import TransformBroadcaster
 
-# from state_estimator.dead_reckoning import *
-# from state_estimator.ekf import *
-# from utils.plot import *
-# from state_estimator.MotionIMU import *
-
 from .state_estimator.dead_reckoning import *
 from .state_estimator.ekf import *
 from .state_estimator.MotionIMU import *
 
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
+import math
 
 class OdometryNode(Node):
     def __init__(self):
         super().__init__('minimal_subscriber')
         # Joint state sub
-        self.joint_sub = self.create_subscription( JointState, '/joint_states', self.joint_callback, 10) # sensor_msgs/msg/JointState
+        self.joint_sub = self.create_subscription( JointState, '/joint_states', self.joint_callback, 10)
         # IMU sub
         self.imu_sub = self.create_subscription( Imu, '/imu', self.imu_callback, 10)
         
         # --- Publishers ---
-        # self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
-        self.path_pub = self.create_publisher(Path, '/ekf_path', 10) # Path Publisher
+        self.path_pub = self.create_publisher(Path, '/ekf_path', 10)
         self.wheel_path_pub = self.create_publisher(Path, '/wheel_path', 10)
         self.wheel_imu_path_pub = self.create_publisher(Path, '/wheel_imu_path', 10)
 
@@ -43,11 +38,11 @@ class OdometryNode(Node):
 
         # --- Path Data Container ---
         self.path = Path()
-        self.path.header.frame_id = 'odom' # Must match RViz Fixed Frame
+        self.path.header.frame_id = 'odom'
         self.wheel_path = Path()
-        self.wheel_path.header.frame_id = 'odom'   # keep same fixed frame as RViz
+        self.wheel_path.header.frame_id = 'odom'
         self.wheel_imu_path = Path()
-        self.wheel_imu_path.header.frame_id = 'odom'   # keep same fixed frame as RViz
+        self.wheel_imu_path.header.frame_id = 'odom'
 
         # --- Wheel odom
         self.wheel_odom = DeadReckoning()
@@ -57,8 +52,22 @@ class OdometryNode(Node):
         # --- Initial Condition
         self.joint_pos = [0,0]
         self.joint_vel = [0,0]
-        self.x , self.y ,self.theta = 0,0,0 # robot state
+        self.x , self.y ,self.theta = 0,0,0
         self.euler = [0,0,0]
+        self.calibrated_yaw = 0.0
+        self.imu_init = False
+        self.joint_init = False
+
+        # --- IMU Calibration ---
+        self.imu_yaw_offset = 0.0
+        self.imu_calibrated = False
+        self.calibration_samples = []
+        self.calibration_sample_count = 50  # Collect 50 samples (~1 second at 50Hz)
+        
+        self.get_logger().info('='*60)
+        self.get_logger().info('Starting IMU calibration...')
+        self.get_logger().info('Please keep the robot STATIONARY!')
+        self.get_logger().info('='*60)
 
         # --- Timer
         self.dt = 0.05
@@ -78,13 +87,10 @@ class OdometryNode(Node):
             self.wheel_imu_line, = self.ax.plot([], [], 'k-', linewidth=2 ,label="Wheel IMU")
             self.ekf_line, = self.ax.plot([], [], 'r-', linewidth=2 ,label="EKF")
             
-            
             self.ax.legend(fontsize=8)
             self.set_plot_axis()
-            # for animation (GIF)
-            self.animation_frames = []  # Store the frames for GIF
+            self.animation_frames = []
             self.anim = None
-
 
     def set_plot_axis(self):
         self.ax.set_aspect('equal')
@@ -92,17 +98,8 @@ class OdometryNode(Node):
         self.ax.set_ylabel("Y (m)")
         self.ax.set_title("Live Odometry")
         self.ax.legend(fontsize=8,loc='lower left')
-        # lim = 8.0
-        # set 0
-        # self.ax.set_xlim(-3.25, 18)
-        # self.ax.set_ylim(-18, 3.25)
-        # set 1
         self.ax.set_xlim(-5, 22.5)
         self.ax.set_ylim(-25.0, 12.5)
-        # set 2
-        # self.ax.set_xlim(-5, 22.5)
-        # self.ax.set_ylim(-15.0, 22.5)
-
         self.ax.set_aspect('equal')
         self.ax.grid(which='both', linestyle='--', color='gray', alpha=0.5)
 
@@ -111,28 +108,62 @@ class OdometryNode(Node):
         name=['wheel_left_joint', 'wheel_right_joint']
         '''
         self.joint_pos, self.joint_vel = msg.position , msg.velocity
+        self.joint_init = True
 
     def imu_callback(self, msg):
         quaternion = msg.orientation
-        euler = euler_from_quaternion([quaternion.x,quaternion.y,quaternion.z,quaternion.w])
-        self.euler = euler
-        # print(euler)
+        euler = euler_from_quaternion([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+        raw_yaw = euler[2]
+        
+        # --- IMU Calibration Phase ---
+        if not self.imu_calibrated:
+            self.calibration_samples.append(raw_yaw)
+            
+            if len(self.calibration_samples) >= self.calibration_sample_count:
+                # Calculate average yaw as offset
+                self.imu_yaw_offset = sum(self.calibration_samples) / len(self.calibration_samples)
+                self.imu_calibrated = True
+                
+                self.get_logger().info('='*60)
+                self.get_logger().info('IMU Calibration COMPLETE!')
+                self.get_logger().info(f'Yaw offset: {math.degrees(self.imu_yaw_offset):.2f}°')
+                self.get_logger().info('Robot ready to move!')
+                self.get_logger().info('='*60)
+                
+                self.imu_init = True
+            else:
+                # Still calibrating - show progress
+                progress = len(self.calibration_samples)
+                if progress % 10 == 0:
+                    self.get_logger().info(f'Calibrating IMU... {progress}/{self.calibration_sample_count}')
+            return
+        
+        # --- Apply calibration offset ---
+        self.calibrated_yaw = raw_yaw - self.imu_yaw_offset
+        
+        # Normalize to [-pi, pi]
+        self.calibrated_yaw = math.atan2(math.sin(self.calibrated_yaw), math.cos(self.calibrated_yaw))
+        
+        # Update euler with calibrated yaw
+        self.euler = [euler[0], euler[1], self.calibrated_yaw]
 
     def timer_callback(self):
+        if not self.joint_init or not self.imu_init or not self.imu_calibrated: 
+            return 
+        
         # ---------------------------- Update estimator ---------------------------- #
-        # print(self.euler[2])
         self.wheel_odom.predict(self.joint_pos)
-        self.wheel_imu.predict(self.joint_pos, z_yaw=self.euler[2])
-        self.x , self.y ,self.theta = self.ekf.predict(self.joint_pos, [0,0,self.euler[2]])
-        # print(self.x , self.y)
+        self.wheel_imu.predict(self.joint_pos, z_yaw=self.calibrated_yaw)
+        self.x , self.y ,self.theta = self.ekf.predict(self.joint_pos, [0, 0, self.calibrated_yaw])
 
         # ---------------------------- Set pub ------------------------------------- #        
-        now = self.get_clock().now().to_msg() # Set time 
+        now = self.get_clock().now().to_msg()
+        
         # EKF
         self.publish_path(self.x, self.y, self.theta, now, self.path, self.path_pub, frame_id="odom")
-        self.publish_odom(self.x, self.y, self.theta, now, self.odom_pub, parent_frame="odom", child_frame="base_link", publish_tf=False)
+        self.publish_odom(self.x, self.y, self.theta, now, self.odom_pub, parent_frame="odom", child_frame="base_link", publish_tf=True)
 
-        # Wheel odom (use different child frame to avoid TF conflicts)
+        # Wheel odom
         self.publish_path(self.wheel_odom.x, self.wheel_odom.y, self.wheel_odom.theta, now,
                                 self.wheel_path, self.wheel_path_pub, frame_id="odom")
         self.publish_odom(self.wheel_odom.x, self.wheel_odom.y, self.wheel_odom.theta, now,
@@ -143,26 +174,19 @@ class OdometryNode(Node):
                                 self.wheel_imu_path, self.wheel_imu_path_pub, frame_id="odom")
         self.publish_odom(self.wheel_imu.x, self.wheel_imu.y, self.wheel_imu.theta, now,
                                 self.wheel_imu_odom_pub, parent_frame="odom", child_frame="base_link", publish_tf=False)
+        
         # ---------------------------- Plot ---------------------------------------- #        
-        # print(f"X : {self.x} || Y : {self.y}")
-        # EKF
-
-
-
         if self.show_animation:
             self.xs.append(self.x)
             self.ys.append(self.y)
-            # Wheel
             self.xa.append(self.wheel_odom.x)
             self.ya.append(self.wheel_odom.y)
-            # Wheel IMU
             self.xb.append(self.wheel_imu.x)
             self.yb.append(self.wheel_imu.y)
-            # self.set_plot_axis()
+            
             self.wheel_line.set_data(self.xa, self.ya)
             self.ekf_line.set_data(self.xs, self.ys)
             self.wheel_imu_line.set_data(self.xb, self.yb)
-            # plt.autoscale()
             plt.pause(0.005)
     
     def publish_path(
@@ -250,8 +274,6 @@ def main():
     rclpy.init(args=None)
     subscriber = OdometryNode()
     rclpy.spin(subscriber)
-
-    # np.save("result/ekf1.npy" , np.array([subscriber.xs,subscriber.ys]))
 
     subscriber.destroy_node()
     rclpy.shutdown()
