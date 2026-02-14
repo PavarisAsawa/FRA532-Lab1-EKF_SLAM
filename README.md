@@ -214,16 +214,16 @@ P_{\text{Pred}} = \begin{bmatrix}
 \end{bmatrix}
 $$
 
-- The first two diagonal elements represent the uncertainty in the robot’s position (x and y).
-- The third diagonal element represents the uncertainty in the robot's orientation (\( \theta \)).
+- The first two diagonal elements represent the uncertainty in the robot’s position ($x$ and $y$).
+- The third diagonal element represents the uncertainty in the robot's orientation ($\theta$).
 
 This matrix is updated during the prediction step using the Jacobian of the motion model and process noise covariance.
 
-### **4. Estimated State Covariance Matrix \( P_{\text{Est}} \)**
+### **4. Estimated State Covariance Matrix ($P_{\text{Est}}$)**
 
-The **estimated state covariance matrix** \( P_{\text{Est}} \) represents the uncertainty in the estimated state after the measurement update step. It is used to track the uncertainty in the final estimated state of the robot after both the prediction and update steps.
+The **estimated state covariance matrix** ($P_{\text{Est}}$) represents the uncertainty in the estimated state after the measurement update step. It is used to track the uncertainty in the final estimated state of the robot after both the prediction and update steps.
 
-In your code, \( P_{\text{Est}} \) is initialized as:
+In my code, ($P_{\text{Est}}$) is initialized as:
 
 $$
 P_{\text{Est}} = \begin{bmatrix}
@@ -233,8 +233,8 @@ P_{\text{Est}} = \begin{bmatrix}
 \end{bmatrix}
 $$
 
-- The first two diagonal elements represent the uncertainty in the robot’s position (x and y).
-- The third diagonal element represents the uncertainty in the robot's orientation (\( \theta \)).
+- The first two diagonal elements represent the uncertainty in the robot’s position ($x$ and $y$).
+- The third diagonal element represents the uncertainty in the robot's orientation ($\theta$).
 
 This matrix is updated after each prediction and correction step to reduce the uncertainty in the state estimate.
 
