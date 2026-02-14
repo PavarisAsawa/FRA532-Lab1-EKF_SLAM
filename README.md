@@ -83,8 +83,7 @@ Where:
 
 
 
-$$
-\bm{x}[k+1] = 
+<!-- $$ \bm{x}[k+1] = 
 \begin{bmatrix}
 x[k+1] \\
 y[k+1] \\
@@ -101,8 +100,28 @@ y[k] \\
 \frac{r}{2} \left( \Delta \phi_{\text{left}} + \Delta \phi_{\text{right}} \right) \cos(\theta[k] + \frac{\Delta \phi_{\text{right}} - \Delta \phi_{\text{left}}}{2}) \\
 \frac{r}{2} \left( \Delta \phi_{\text{left}} + \Delta \phi_{\text{right}} \right) \sin(\theta[k] + \frac{\Delta \phi_{\text{right}} - \Delta \phi_{\text{left}}}{2}) \\
 \frac{r}{L} \left( \Delta \phi_{\text{right}} - \Delta \phi_{\text{left}} \right)
+\end{bmatrix} $$ -->
+
+\[
+\bm{x}[k+1] =
+\begin{bmatrix}
+x[k+1] \\
+y[k+1] \\
+\theta[k+1]
 \end{bmatrix}
-$$
+=
+\begin{bmatrix}
+x[k] \\
+y[k] \\
+\theta[k]
+\end{bmatrix}
++
+\begin{bmatrix}
+\frac{r}{2}\left( \Delta \phi_{\text{left}} + \Delta \phi_{\text{right}} \right)\cos\!\left(\theta[k] + \frac{\Delta \phi_{\text{right}} - \Delta \phi_{\text{left}}}{2}\right) \\
+\frac{r}{2}\left( \Delta \phi_{\text{left}} + \Delta \phi_{\text{right}} \right)\sin\!\left(\theta[k] + \frac{\Delta \phi_{\text{right}} - \Delta \phi_{\text{left}}}{2}\right) \\
+\frac{r}{L}\left( \Delta \phi_{\text{right}} - \Delta \phi_{\text{left}} \right)
+\end{bmatrix}
+\]
 
 
 >**ref : https://medium.com/@nahmed3536/wheel-odometry-model-for-differential-drive-robotics-91b85a012299**
