@@ -60,25 +60,20 @@ def remove_outliers(points, radius=0.2, min_neighbors=5):
         - min_neighbors: minimum neighbour
         """
         if points.shape[0] < min_neighbors:
-            return points # จุดน้อยเกิน ไม่ต้องกรอง
-
-        # 1. สร้าง KDTree เพื่อค้นหาเพื่อนบ้านอย่างรวดเร็ว
-        # (ต้อง Transpose เป็น (N, 2) เพื่อเข้า KDTree)
+            return points
         tree = KDTree(points) 
         
-        # 2. นับจำนวนเพื่อนในรัศมีที่กำหนด
-        # query_ball_point จะคืน list ของ index เพื่อนบ้าน
-        # return_length=True จะคืนจำนวนเพื่อนมาให้เลย (เร็วมาก)
         neighbors_count = tree.query_ball_point(points, r=radius, return_length=True)
         neighbors_count = np.array(neighbors_count)
         
-        # 3. เก็บเฉพาะจุดที่มีเพื่อนมากกว่าที่กำหนด
-        # (ลบตัวเองออก 1 เสียง เพราะ KDTree นับตัวเองเป็นเพื่อนด้วย)
         mask = neighbors_count > min_neighbors 
         
         return points[mask, :]
 
 def wrap(a):
+    """    
+    Preventing theta wraping
+    """
     return np.arctan2(np.sin(a), np.cos(a))
 
 def se2_compose(a, b):

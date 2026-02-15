@@ -32,7 +32,8 @@ setup(
         'console_scripts': [
             'odometry_node = lab1_ekf_slam.localize_node:main',
             'icp_node = lab1_ekf_slam.icp_node_5:main',
-            'slam_node = lab1_ekf_slam.SLAM_node:main'
+            'slam_node = lab1_ekf_slam.SLAM_node:main',
+            'eval_node = lab1_ekf_slam.eval_node:main'
         ],
     },
 )

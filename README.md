@@ -1,4 +1,10 @@
 # **FRA532 Mobile Robot: Lab 1 - EKF & SLAM**
+
+## **Table of content**
+- [Extended Kalman Filter](#extended-kalman-filter)
+- [Iterative Point Cloud](#iterative-point-cloud)
+- [Results](#results)
+- [Conclusion](#conclusion)
 ## **Extended Kalman Filter**
 ### **Robot State**
 - Following the instructions, for this homework, we need to obtain odometry from both raw wheeled odometry and fused odometry with IMU data.
@@ -140,11 +146,11 @@ $$
 #### **Observation Model & Jacobian**
 In this homework, we utilize IMU data, and able to access robot's orientation from IMU sensor. We can use this inforamation to correct the data. The matrix for observation model we define as
 
-$h = \begin{bmatrix} 0 & 0 & 1\end{bmatrix}$$
+$$h = \begin{bmatrix} 0 & 0 & 1\end{bmatrix}$$
 
 Similar to motion jacobian we use taylor series to linearize from observation
 
-$$mathbf{H} = 
+$$\mathbf{H} = 
 \begin{bmatrix} 
 0 & 0 & 0 \\
 0 & 0 & 0 \\
@@ -231,11 +237,98 @@ This matrix is updated after each prediction and correction step to reduce the u
 
 > Should be note that our hyperparameters doesn't good fine tuning to do estimated the task
 
-#### Result
+#### Motion Model & EKF Result
 Our results from integrating the motion model and IMU data significantly enhance our odometry, particularly for 
 θ
 θ in the odometry.
 
-<p style="text-align: center;"> <img src="figures/compare_odom.png" alt="Example Figure" style="display: block; margin-left: auto; margin-right: auto; width: 80%; height: auto;"> </p>
+<p style="text-align: center;"> <img src="figures/ekf_raw.png" alt="Example Figure" style="display: block; margin-left: auto; margin-right: auto; width: 80%; height: auto;"> </p>
 
-Although our odometry performance has improved, a gap can still be observed at the end of the path. Additionally, we compared our EKF estimator to both the raw wheeled odometry and raw wheeled odometry with IMU data used for yaw estimation. The comparison shows that the EKF has similar performance to using only the yaw data from the IMU, with no significant difference.
+- (Left) Although our odometry performance has improved, a gap can still be observed at the end of the path. Additionally, we compared our EKF estimator to both the raw wheeled odometry and raw wheeled odometry with IMU data used for yaw estimation. The comparison shows that the EKF has similar performance to using only the yaw data from the IMU, with no significant difference.
+- (Right) **I just Remember that I use wrong value of distance between wheel in motion model**, but the **EKF has the similar performance with wrong model**. But
+after change the motion model wheel odometry significantly better.
+
+## Iterative Point Cloud (ICP Refinement)
+
+In this section, we enhance EKF-based odometry using the Iterative Closest Point (ICP) algorithm. ICP refines the robot pose by aligning the current laser scan (converted to a point cloud) with a reference map. Since vanilla ICP is not designed for SLAM, we modify the pipeline with several key features to make it more stable and SLAM-compatible. In this work, we use the **point-to-point** ICP method for scan alignment.
+
+### Key Features for SLAM Compatibility
+
+Vanilla ICP is not directly suitable for SLAM because it is sensitive to drift, outliers, and local minima. To address this, we add the following features:
+
+1. **Keyframe-Based Mapping**  
+   Instead of using every scan, the system selects **keyframes** based on distance and/or rotation thresholds. This reduces computational cost, avoids redundant map updates, and helps limit accumulated error over time.
+
+2. **Local Map Extraction**  
+   Rather than matching against the entire global map, ICP aligns the scan only with a **local submap** within a fixed radius (e.g., **6 m**). This makes computation more tractable, improves robustness to global drift, and supports real-time operation.
+
+3. **Jump Detection & Validation**  
+   The ICP output pose is rejected if it produces an aggressive motion jump beyond predefined bounds. In that case, the system falls back to EKF odometry to prevent incorrect pose updates.
+
+4. **Failure Handling (Fallback to EKF)**  
+   If ICP fails (e.g., not enough valid points, poor convergence, or unreliable matching), the system uses EKF odometry instead to avoid applying a wrong alignment.
+
+### ICP Process
+
+1. Subscribe to the `/scan` topic (from rosbag or live) and convert each scan into a point cloud using the current odometry estimate.  
+2. Preprocess the point cloud to reduce noise and improve stability. Common methods include **outlier rejection** and **voxel grid downsampling** to remove spurious points and reduce redundancy.  
+3. Use the current scan point cloud as the **source**, and match it against the **target**, which is either the previous scan or (in our case) the **local map**.  
+4. Perform data association using **KNN** with **K = 1** (nearest neighbor) to find correspondences between source points and target points. This work considers only **point-to-point** correspondences.  
+5. Run ICP optimization using the current odometry / EKF pose as the **initial guess**, then estimate the rigid transformation via **SVD (Singular Value Decomposition)**. The result is a rotation matrix ($R$) and translation vector ($T$).  
+6. Validate the result by checking alignment error and motion limits. If the update exceeds the allowed bounds (jump detected), reject it and use EKF odometry instead.  
+7. If accepted, update the robot pose and refresh the **local map** and **keyframe set**.
+
+
+## **Results** 
+Our results have 2 section, first is compare the odometry each algorithm. Second, compared the map quality between `our ICP` and `SLAM TOOLBOX`
+> **Since we don't have groudtruth on dataset**, we cannot evaluate the real performance on each map, we consider 2 factor is odometry shape, map 
+
+### Odometry Quality
+- we will estimate odometry quality by using the difference of starting point and end point of each algorithm for each map, this method has strong assumption that all of dataset must return to starting point
+
+<p style="text-align: center;"> <img src="figures/compare_all.png" alt="Example Figure" style="display: block; margin-left: auto; margin-right: auto; width: 80%; height: auto;"> </p>
+
+- `Map 0` : ICP achieves the smallest loop-closure error, suggesting that scan matching helps correct accumulated heading/pose drift. In contrast, both raw wheel odometry and EKF show significant drift after the first turn, leading to a larger start–end distance.
+- `Map 1` : The raw wheel odometry fails after the sharp turn and diverges significantly. Both EKF and ICP remain stable and end much closer to the starting point, indicating EKF can .
+- `Map 2` : EKF and raw odometry follow a similar trajectory pattern to Map 0, while the ICP trajectory appears to return to an earlier (previous) path. However, the raw odometry has the smallest loop-closure error in this run.
+
+These results show that a pure loop-closure metric (start–end distance) is not sufficient to identify the best odometry solution. A small loop-closure error can still occur even when the trajectory is incorrect (e.g., due to taking a wrong path or local misalignment). Therefore, we should evaluate odometry using additional evidence—such as the map consistency/quality produced by ICP mapping or a SLAM reference (e.g., slam_toolbox)—and treat these as stronger baselines than loop-closure distance alone.
+
+### Map Quality
+
+<p style="text-align: center;"> <img src="figures/map_icp.png" alt="Example Figure" style="display: block; margin-left: auto; margin-right: auto; width: 80%; height: auto;"> </p>
+
+From the results, both the trajectory and the map indicate that ICP can improve EKF odometry by reducing accumulated drift and bringing the estimated end pose closer to the initial path. However, none of the reconstructed maps are perfect: all maps show some drift near the end of the run. Notably, Map 1 is the only case where the drift is clearly upward, suggesting a different failure mode or alignment bias compared with the other maps.
+
+For Map 2, the ICP trajectory is able to reconnect and form a more consistent loop in the map (even if it is not perfectly closed). This suggests that, in this scenario, ICP provides a more reliable odometry estimate than the other methods that fail to return near the starting region. Although the final ICP pose is still shifted to the right of the initial pose, the overall trajectory and map consistency support the conclusion that a lower loop-closure error alone is not sufficient, and that map/trajectory consistency should also be considered when judging which odometry is best.
+
+## **SLAM TOOLBOX**
+- This part is collaborate with **`Mr.Anuwit Intet`**, 
+- Meanwhile, `slamtoolbox` including with many feature including, lifelong mapping, interative tools allow manual loop closure by moving the node and connection. For more detail please visit **https://github.com/BlackTalae/AMR_LAB1_ws**
+
+To compare the performance we will use vanilla version on slamtoolbox 
+> *Thanks : https://github.com/SteveMacenski/slam_toolbox*
+
+### MAP
+<p style="text-align: center;"> <img src="figures/icp_slamtb_compare.png" alt="Example Figure" style="display: block; margin-left: auto; margin-right: auto; width: 80%; height: auto;"> </p>
+
+The maps produced by `slam_toolbox` and our `ICP` method are generally quite similar. The main exception is `map 2`, where the slam_toolbox map appears closest to a “perfect” closed loop, indicating stronger **loop-closure** behavior. Although, `slamtoolbox` do not perform loop closure in our experiments. For `map 0` and `map 1`, the results are not significantly different from our `ICP` maps.
+
+We also observe that the slam_toolbox trajectory/map updates are denser (i.e., the update interval is smaller) than ours. This is expected because slam_toolbox typically updates the pose at nearly every scan, while our ICP pipeline uses keyframes to insert points into the local map. Despite using fewer updates, our ICP approach can still achieve a nearly closed loop in the reconstructed map.
+
+### ODOM
+
+<p style="text-align: center;"> <img src="figures/odom_all2.png" alt="Example Figure" style="display: block; margin-left: auto; margin-right: auto; width: 80%; height: auto;"> </p>
+
+From the result show that loop closure error cannot indicate the best odometry from difference algoithm, but in term of odometry shape, although other odometry get less distance error, but if we compare in term of tracking the map,despite not perfect map, `ICP` odometry and `slamtoolbox` odometry is better than other odometry. If we use map from `wheel odom` , `EKF odom` it will show more drifter map than `ICP` and `slamtoolbox`. From `slamtoolbox` and `ICP` map these map show only `ICP`,`slamtoolbox` can follow the most closest perfect map while other odom drift off to the map
+
+## Conclusion
+### EKF and Motion Model
+- Only motion model is depending only the model, it we model wrong all the path will be gone wrong. On the other, we cannot model all uncertainty factor such as wheel slip, friction, disturbance in our model. To acheive this, we combine the measurement model with EKF to dynamical weights between our motion model and our measurement, which improve our odometry, especially **yaw** which seem better to closer to our map in later result.
+### EKF and ICP
+- Compared to `ICP` algorithm, out `ICP` have overall better performance from `EKF` by using the scan matching to ues the the measurement from lidar to match our map and align current pose, this can significantly improve the odometry from overall map. In contrast, in our `map 1`, `EKF` and `ICP` is not significantly difference because of ICP get the bad information when sharp turn, and from the point cloud it show that the scan informations are drift every time the turn (only yaw). While `EKF` use only yaw(measurement) to correct the state not depend only scan.
+### ICP and slamtoolbox
+- `ICP` and `slamtoolbox` map is not much difference, in `map 0` and `map 1` both algorithm cannot be the loop closure while on `map 2` `slamtoolbox` complete to create mostly perfect align map, 
+
+
+> Presentation Slide : https://www.canva.com/design/DAHBGQt0iWQ/pEniAY8PZd4fy1aPmfsX4Q/view?utm_content=DAHBGQt0iWQ&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h37da07444c
