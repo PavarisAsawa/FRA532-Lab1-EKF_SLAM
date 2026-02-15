@@ -1,5 +1,7 @@
 # **FRA532 Mobile Robot: Lab 1 - EKF & SLAM**
-
+- Pavaris Asawakijtananont
+- Anuwit Intet 
+   - https://github.com/BlackTalae/FRA532_LAB1_ws
 ## **Table of content**
 - [Extended Kalman Filter](#extended-kalman-filter)
 - [Iterative Point Cloud](#iterative-point-cloud)
@@ -378,7 +380,7 @@ ICP refines odometry by aligning the current LiDAR scan (source) with a referenc
 
 ### Reference
 
-Collaborator : https://github.com/BlackTalae/AMR_LAB1_ws
+Collaborator : https://github.com/BlackTalae/FRA532_LAB1_ws
 
 Presentation Slide : https://www.canva.com/design/DAHBGQt0iWQ/pEniAY8PZd4fy1aPmfsX4Q/view?utm_content=DAHBGQt0iWQ&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h37da07444c
 
