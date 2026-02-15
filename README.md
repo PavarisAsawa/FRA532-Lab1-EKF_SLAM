@@ -4,7 +4,7 @@
 - [Extended Kalman Filter](#extended-kalman-filter)
 - [Iterative Point Cloud](#iterative-point-cloud)
 - [Results](#results)
-- [Conclusion](#conclusion)
+- [Results conclusion](#result-conclusion)
 ## **Extended Kalman Filter**
 ### **Robot State**
 - Following the instructions, for this homework, we need to obtain odometry from both raw wheeled odometry and fused odometry with IMU data.
@@ -312,7 +312,7 @@ To compare the performance we will use vanilla version on slamtoolbox
 ### MAP
 <p style="text-align: center;"> <img src="figures/icp_slamtb_compare.png" alt="Example Figure" style="display: block; margin-left: auto; margin-right: auto; width: 80%; height: auto;"> </p>
 
-The maps produced by `slam_toolbox` and our `ICP` method are generally quite similar. The main exception is `map 2`, where the slam_toolbox map appears closest to a “perfect” closed loop, indicating stronger **loop-closure** behavior. Although, `slamtoolbox` do not perform loop closure in our experiments. For `map 0` and `map 1`, the results are not significantly different from our `ICP` maps.
+The maps produced by `slam_toolbox` and our `ICP` method are generally quite similar. The main exception is `map 2`, where the slam_toolbox map appears closest to a “perfect” closed loop, indicating stronger **loop-closure** behavior. Although, `slamtoolbox` do not perform loop closure in our experiments. For `map 0` and `map 1`, the results are not significantly different from our `ICP` maps. In `map 1`, `slamtoolbox` show the feature of node optimization by delete some redundant node from the scan when face the sharping turn, this action can help the algorimth robust to hallucination from sharp turning
 
 We also observe that the slam_toolbox trajectory/map updates are denser (i.e., the update interval is smaller) than ours. This is expected because slam_toolbox typically updates the pose at nearly every scan, while our ICP pipeline uses keyframes to insert points into the local map. Despite using fewer updates, our ICP approach can still achieve a nearly closed loop in the reconstructed map.
 
@@ -322,13 +322,77 @@ We also observe that the slam_toolbox trajectory/map updates are denser (i.e., t
 
 From the result show that loop closure error cannot indicate the best odometry from difference algoithm, but in term of odometry shape, although other odometry get less distance error, but if we compare in term of tracking the map,despite not perfect map, `ICP` odometry and `slamtoolbox` odometry is better than other odometry. If we use map from `wheel odom` , `EKF odom` it will show more drifter map than `ICP` and `slamtoolbox`. From `slamtoolbox` and `ICP` map these map show only `ICP`,`slamtoolbox` can follow the most closest perfect map while other odom drift off to the map
 
-## Conclusion
+<!-- ## Conclusion
 ### EKF and Motion Model
 - Only motion model is depending only the model, it we model wrong all the path will be gone wrong. On the other, we cannot model all uncertainty factor such as wheel slip, friction, disturbance in our model. To acheive this, we combine the measurement model with EKF to dynamical weights between our motion model and our measurement, which improve our odometry, especially **yaw** which seem better to closer to our map in later result.
 ### EKF and ICP
 - Compared to `ICP` algorithm, out `ICP` have overall better performance from `EKF` by using the scan matching to ues the the measurement from lidar to match our map and align current pose, this can significantly improve the odometry from overall map. In contrast, in our `map 1`, `EKF` and `ICP` is not significantly difference because of ICP get the bad information when sharp turn, and from the point cloud it show that the scan informations are drift every time the turn (only yaw). While `EKF` use only yaw(measurement) to correct the state not depend only scan.
 ### ICP and slamtoolbox
-- `ICP` and `slamtoolbox` map is not much difference, in `map 0` and `map 1` both algorithm cannot be the loop closure while on `map 2` `slamtoolbox` complete to create mostly perfect align map, 
+- `ICP` and `slamtoolbox` map is not much difference, in  `map 1` both algorithm cannot be the loop closure while on `map 2` and `map 0`, `slamtoolbox` complete to create mostly perfect align map, while `ICP` show the major drift. 
+- In quantitatively analysis it still hard to analyze the real error without real trajectory of robot in real map. In term ofmap qualitatively is map from our `ICP` gain more information than the `slamtoolbox` which has lower scan frequency. And the main problem of both algorithm is lack of feature during turning bring to the map drift after passing the turning point
+
+### Overall conclusion
+- Every algorithm has their own benefits, if we have more information we can make more robust and accurate mapping or SLAM. On the other hand, we need more data preprocessing such as IMU calibration, data filter for scaning point cloud or **`more tuning hyperparameters`**
+#### Robustness and Accuracy
+- summary of robustness, `ICP` and `slamtoolbox` and make the good and most robust odometry, but in `map 1`, `EKF` show that with the bad information (bad scan for sharp turn) can bring more error to the system, while `EKF` not require the scan data but can make comparable perfomance to other scan matching algoithm.
+- all of the map and odomerey are shifted at the turning point, mostly in button right of the map that we clearly see that the long collidor is shifted from the 2 main reasons. Firstly, the IMU cannot gain the perfectly yaw information in to our system. Lastly mostly scan matching algorithm cannot found a good feature at the turning point, scan can be missing then we must use pure odom from EKF directly bring more error or shifted sometime the feature can be missing or lack of information in environment at turning point then the odometry is shifted, for example in case of righ buttom environment, that has only 2 pillar before the turning point and left buttom that has the minimum number of scan found before face the table the not align the wall of 306 that we found before 
+- To increase more robustness in our system, we can add the `ICP` in our `EKF` to correction the state from the `ICP` not only from the `IMU` for now implementation we seperate both `EKF` odom and odometry after refine by `ICP` -->
+
+## Result Conclusion
+
+### EKF and Motion Model
+- A pure motion model depends entirely on how accurate the model is. If the model is incorrect, the estimated trajectory will also be incorrect.In practice, we cannot model all sources of uncertainty (e.g., wheel slip, friction changes, floor disturbance, and unmodeled dynamics).
+- To handle these uncertainties, we fuse a measurement model with the motion model using an EKF. The EKF dynamically balances the contribution (weight) between prediction and measurement, which improves odometry—especially the **yaw** estimate. This leads to better map alignment in the later results.
+
+### EKF and ICP
+- Compared with EKF-only odometry, our ICP refinement generally improves performance by using **LiDAR scan matching** to align the current scan with the local map and correct the pose estimate.
+- However, in **Map 1**, EKF and ICP performance is not significantly different. This is likely because **ICP becomes less reliable during sharp turns**. From the point cloud behavior, the scan alignment tends to drift at each turn (mainly in yaw), causing ICP to output less accurate updates.
+- In contrast, EKF can remain stable because it uses a yaw measurement (IMU) to correct the state and does not rely solely on scan alignment.
+
+### ICP and slam_toolbox
+- The maps produced by ICP and `slam_toolbox` are generally similar, but `slam_toolbox` shows stronger global consistency in some runs.
+- In **Map 1**, neither method produces a clear closed-loop map.
+- In **Map 0** and **Map 2**, `slam_toolbox` produces a map that is closer to a well-aligned loop, while our ICP map shows more noticeable drift.
+- Quantitative evaluation is still difficult without ground-truth trajectory. Qualitatively, our ICP map sometimes contains more dense scan information because we integrate scans differently, whereas `slam_toolbox` produces a cleaner map overall.
+- A key limitation for both methods is the lack of strong geometric constraints during turning. Missing or ambiguous features at corners can cause scan matching to degrade, leading to drift after the robot passes a turning point.
+- In `slamtoolbox` it not just only including with `ICP` or scan matching but it also including with **Loop closure**, **Graph optimization** 
+
+### Overall Conclusion
+- Each method has its own strengths. With richer and more reliable sensor information, we could achieve more robust and accurate mapping/SLAM.
+- Further improvements require better preprocessing and tuning, such as IMU calibration, scan filtering/outlier rejection, and **more hyperparameter tuning**.
+
+#### Robustness and Accuracy
+- In general, ICP and `slam_toolbox` provide robust odometry because scan matching can correct accumulated drift.
+- However, **Map 1** shows that poor scan information (especially during sharp turns) can degrade scan-matching performance and increase error.
+- EKF can still achieve comparable performance in some cases because it does not require scan matching and can rely on IMU yaw correction instead.
+- Across all runs, most trajectories and maps show a consistent shift around turning regions (often near the bottom-right corridor). This likely comes from two main causes:
+  1. The IMU yaw measurement is not perfectly calibrated, so heading correction is imperfect.
+  2. Scan matching struggles to find reliable correspondences at corners due to limited features or occlusions, causing missing/unstable alignments. When scan updates are rejected or fail, the system falls back to odometry, which increases accumulated drift.
+- To improve robustness, ICP updates should be integrated into the EKF as an additional measurement (not only IMU yaw). In our current implementation, EKF odometry and ICP-refined odometry are still computed separately, but combining them within a single EKF framework could improve stability and consistency.
+
+
+## Overall Conclusion (Motion Model, EKF, ICP, and `slam_toolbox`)
+
+Each method contributes differently, and the best mapping/SLAM performance comes from combining complementary information. In general, richer and more reliable sensor inputs lead to more robust and accurate localization, while poor measurements or weak geometric features can cause drift and misalignment. Therefore, both **sensor quality** and **algorithm tuning** strongly affect the final results.
+
+### Motion Model (Dead-Reckoning)
+The motion model predicts the robot’s next pose using kinematics (e.g., wheel encoders and differential-drive equations). This approach is simple and produces smooth trajectories, but it accumulates error over time. In real environments, it is difficult to model all uncertainty sources—such as wheel slip, friction variation, disturbances, and imperfect parameters (wheel radius and wheelbase). Small heading errors are especially harmful because yaw drift quickly becomes large position drift after turns.
+
+### EKF (Sensor Fusion)
+The EKF improves dead-reckoning by fusing the motion model (prediction) with sensor measurements (correction), such as IMU yaw. This fusion dynamically balances the contribution of prediction and measurement, which often improves odometry stability and reduces drift—especially in **yaw**. However, EKF performance depends on measurement quality.  In addition, EKF cannot “see” the environment structure unless map-related measurements (e.g., scan matching) are included.
+
+### ICP (LiDAR Scan Matching Refinement)
+ICP refines odometry by aligning the current LiDAR scan (source) with a reference map or local submap (target). This allows ICP to correct accumulated drift in both position and heading, especially when the environment provides clear geometric constraints and good scan overlap. However, ICP can be unreliable in challenging conditions—such as sharp turns (low overlap), feature-poor corridors (degenerate geometry), dynamic objects, or noisy scans—causing convergence to local minima or incorrect pose updates. On the other hand, without noisy scans ICP may cannot found th unique feature in the map
+
+### `slam_toolbox` (Full SLAM Back-End with Loop Closure)
+`slam_toolbox` typically provides a more complete SLAM pipeline than local ICP refinement. It continuously performs scan matching and can apply **loop closure** and **global optimization** (pose graph correction) when revisiting locations. As a result, `slam_toolbox` often produces cleaner and more globally consistent maps, especially in scenarios where loop closure is successfully detected(not in this work). Nevertheless, it still depends on sensor quality and tuning; inaccurate odometry/IMU or poor scan quality can degrade performance.
+
+### Why Preprocessing and Tuning Matter
+Further improvements require better preprocessing and tuning, for example:
+- **IMU calibration** to reduce yaw bias and improve EKF correction quality  
+- **Scan filtering / outlier rejection / downsampling** to stabilize ICP matching and reduce map noise  
+- **Hyperparameter tuning** (keyframe thresholds, local map radius, ICP convergence settings, jump-rejection bounds) to improve robustness across different trajectories and environments  
+
 
 
 > Presentation Slide : https://www.canva.com/design/DAHBGQt0iWQ/pEniAY8PZd4fy1aPmfsX4Q/view?utm_content=DAHBGQt0iWQ&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h37da07444c
