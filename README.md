@@ -15,8 +15,8 @@
 
 $$
 \mathbf{x} = \begin{bmatrix}
-u \\
-v \\
+x \\
+y \\
 \theta
 \end{bmatrix}
 $$
