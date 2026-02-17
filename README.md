@@ -127,7 +127,7 @@ Matrix $\mathbf{H}$ selected observable state from the state, selected only $\th
 EKF handle non-linearity with linearization with first-order Taylor series, represented as Jacobian matrix. We linearize our motion model as:
 
 $$
-\frac{\partial \mathbf{x}}{\partial u} =
+\frac{\partial f(\mathbf{x},u)}{\partial \mathbf{x}} =
 \begin{bmatrix}
 \frac{\partial x}{\partial x} & \frac{\partial x}{\partial y} & \frac{\partial x}{\partial \theta} \\
 \frac{\partial y}{\partial x} & \frac{\partial y}{\partial y} & \frac{\partial y}{\partial \theta} \\
