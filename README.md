@@ -148,7 +148,7 @@ $$
 #### **Observation Model & Jacobian**
 In this homework, we utilize IMU data, and able to access robot's orientation from IMU sensor. We can use this inforamation to correct the data. The matrix for observation model we define as
 
-$$h(\mathbf{x}) = \begin{bmatrix} 0 & 0 & 1\end{bmatrix}^{T}$$
+$$h(\mathbf{x}) = \begin{bmatrix} 0 & 0 & \theta\end{bmatrix}^{T}$$
 
 Similar to motion jacobian we use taylor series to linearize from observation
 
