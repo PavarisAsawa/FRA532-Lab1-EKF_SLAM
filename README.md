@@ -129,9 +129,9 @@ EKF handle non-linearity with linearization with first-order Taylor series, repr
 $$
 \frac{\partial \mathbf{x}}{\partial u} =
 \begin{bmatrix}
-\frac{\partial x}{\partial u_0} & \frac{\partial x}{\partial u_1} & \frac{\partial x}{\partial \theta} \\
-\frac{\partial y}{\partial u_0} & \frac{\partial y}{\partial u_1} & \frac{\partial y}{\partial \theta} \\
-\frac{\partial \theta}{\partial u_0} & \frac{\partial \theta}{\partial u_1} & \frac{\partial \theta}{\partial \theta}
+\frac{\partial x}{\partial x} & \frac{\partial x}{\partial y} & \frac{\partial x}{\partial \theta} \\
+\frac{\partial y}{\partial x} & \frac{\partial y}{\partial y} & \frac{\partial y}{\partial \theta} \\
+\frac{\partial \theta}{\partial x} & \frac{\partial \theta}{\partial y} & \frac{\partial \theta}{\partial \theta}
 \end{bmatrix}
 $$
 
