@@ -75,13 +75,10 @@ This approach is useful for scenarios with **low-frequency data** where wheel ve
 ##### **Delta of Joint Positions:**
 
 For both the left and right wheels, we calculate the difference in position between successive time steps:
-$$
-\Delta \phi_{\text{left}} = \text{atan2}(\sin(\phi_{\text{left}}[k] - \phi_{\text{left}}[k-1]), \cos(\phi_{\text{left}}[k] - \phi_{\text{left}}[k-1]))
-$$
 
-$$
-\Delta \phi_{\text{right}} = \text{atan2}(\sin(\phi_{\text{right}}[k] - \phi_{\text{right}}[k-1]), \cos(\phi_{\text{right}}[k] - \phi_{\text{right}}[k-1]))
-$$
+$$\Delta \phi_{\text{left}} = \text{atan2}(\sin(\phi_{\text{left}}[k] - \phi_{\text{left}}[k-1]), \cos(\phi_{\text{left}}[k] - \phi_{\text{left}}[k-1]))$$
+
+$$\Delta \phi_{\text{right}} = \text{atan2}(\sin(\phi_{\text{right}}[k] - \phi_{\text{right}}[k-1]), \cos(\phi_{\text{right}}[k] - \phi_{\text{right}}[k-1]))$$
 
 Where:
 - $\phi_{\text{left}}[k]$ and $\phi_{\text{right}}[k]$ are the joint positions of the left and right wheels at time step $k$.
@@ -250,7 +247,7 @@ Our results from integrating the motion model and IMU data significantly enhance
 - (Right) **I just Remember that I use wrong value of distance between wheel in motion model**, but the **EKF has the similar performance with wrong model**. But
 after change the motion model wheel odometry significantly better.
 
-## Iterative Point Cloud (ICP Refinement)
+## Iterative Point Cloud
 
 In this section, we enhance EKF-based odometry using the Iterative Closest Point (ICP) algorithm. ICP refines the robot pose by aligning the current laser scan (converted to a point cloud) with a reference map. Since vanilla ICP is not designed for SLAM, we modify the pipeline with several key features to make it more stable and SLAM-compatible. In this work, we use the **point-to-point** ICP method for scan alignment.
 
